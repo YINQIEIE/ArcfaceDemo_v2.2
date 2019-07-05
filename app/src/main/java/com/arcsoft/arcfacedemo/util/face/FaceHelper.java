@@ -1,6 +1,5 @@
 package com.arcsoft.arcfacedemo.util.face;
 
-import android.graphics.Rect;
 import android.hardware.Camera;
 import android.util.Log;
 
@@ -44,6 +43,7 @@ public class FaceHelper {
     private List<FaceInfo> formerFaceInfoList = new ArrayList<>();
     private List<FacePreviewInfo> facePreviewInfoList = new ArrayList<>();
     private ConcurrentHashMap<Integer, String> nameMap = new ConcurrentHashMap<>();
+
     private FaceHelper(Builder builder) {
         faceEngine = builder.faceEngine;
         faceListener = builder.faceListener;
@@ -142,6 +142,36 @@ public class FaceHelper {
     }
 
     /**
+     * 不进行货梯检测方法
+     *
+     * @param nv21 帧数据
+     * @return 人脸数据
+     */
+    public List<FacePreviewInfo> onPreviewFrameWithoutDetectLiveness(byte[] nv21) {
+        facePreviewInfoList.clear();
+        if (faceListener != null) {
+            if (faceEngine != null) {
+                faceInfoList.clear();
+                int code = faceEngine.detectFaces(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList);
+                if (code != ErrorInfo.MOK) {
+                    faceListener.onFail(new Exception("ft failed,code is " + code));
+                }
+                refreshTrackId(faceInfoList);
+
+                code = faceEngine.process(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList, FaceEngine.ASF_LIVENESS);
+                if (code != ErrorInfo.MOK) {
+                    faceListener.onFail(new Exception("process failed,code is " + code));
+                } else {
+                    for (int i = 0; i < faceInfoList.size(); i++) {
+                        facePreviewInfoList.add(new FacePreviewInfo(faceInfoList.get(i), livenessInfoList.get(i), currentTrackIdList.get(i)));
+                    }
+                }
+            }
+        }
+        return facePreviewInfoList;
+    }
+
+    /**
      * 人脸特征提取线程
      */
     public class FaceRecognizeRunnable implements Runnable {
@@ -218,7 +248,7 @@ public class FaceHelper {
                 //遍历上一次人脸框
                 for (int j = 0; j < formerFaceInfoList.size(); j++) {
                     //若是同一张人脸
-                    if (TrackUtil.isSameFace( formerFaceInfoList.get(j), ftFaceList.get(i))) {
+                    if (TrackUtil.isSameFace(formerFaceInfoList.get(j), ftFaceList.get(i))) {
                         //记录ID
                         currentTrackIdList.set(i, formerTrackIdList.get(j));
                         break;

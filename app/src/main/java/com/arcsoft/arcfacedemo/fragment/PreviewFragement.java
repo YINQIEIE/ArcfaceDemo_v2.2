@@ -19,20 +19,24 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import com.arcsoft.arcfacedemo.R;
+import com.arcsoft.arcfacedemo.faceserver.CompareResult;
+import com.arcsoft.arcfacedemo.faceserver.FaceServer;
 import com.arcsoft.arcfacedemo.model.DrawInfo;
 import com.arcsoft.arcfacedemo.util.ConfigUtil;
 import com.arcsoft.arcfacedemo.util.DrawHelper;
 import com.arcsoft.arcfacedemo.util.camera.CameraHelper;
 import com.arcsoft.arcfacedemo.util.camera.CameraListener;
+import com.arcsoft.arcfacedemo.util.face.FaceHelper;
+import com.arcsoft.arcfacedemo.util.face.FaceListener;
 import com.arcsoft.arcfacedemo.widget.FaceRectView;
 import com.arcsoft.face.AgeInfo;
 import com.arcsoft.face.ErrorInfo;
 import com.arcsoft.face.Face3DAngle;
 import com.arcsoft.face.FaceEngine;
+import com.arcsoft.face.FaceFeature;
 import com.arcsoft.face.FaceInfo;
 import com.arcsoft.face.GenderInfo;
 import com.arcsoft.face.LivenessInfo;
@@ -40,6 +44,14 @@ import com.arcsoft.face.VersionInfo;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import io.reactivex.Observable;
+import io.reactivex.ObservableEmitter;
+import io.reactivex.ObservableOnSubscribe;
+import io.reactivex.Observer;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlobalLayoutListener {
 
@@ -50,12 +62,12 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
     private Integer rgbCameraId = Camera.CameraInfo.CAMERA_FACING_FRONT;
     private FaceEngine faceEngine;
     private int afCode = -1;
+    private FaceHelper faceHelper;
     private int processMask = FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS;
     /**
      * 相机预览显示的控件，可为SurfaceView或TextureView
      */
     private View previewView;
-    private FrameLayout frameLayout;
     private FaceRectView faceRectView;
 
     private static final int ACTION_REQUEST_PERMISSIONS = 0x001;
@@ -66,8 +78,6 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
             Manifest.permission.CAMERA,
             Manifest.permission.READ_PHONE_STATE
     };
-
-    private boolean isFirst = true;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -89,7 +99,6 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
         View view = inflater.inflate(R.layout.fragment_preview, container, false);
 
         previewView = view.findViewById(R.id.texture_preview);
-        frameLayout = view.findViewById(R.id.flPreview);
         faceRectView = view.findViewById(R.id.face_rect_view);
         //在布局结束后才做初始化操作
         previewView.getViewTreeObserver().addOnGlobalLayoutListener(this);
@@ -102,13 +111,13 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
      */
     @Override
     public void onGlobalLayout() {
-        isFirst = false;
         previewView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
         if (!checkPermissions(NEEDED_PERMISSIONS)) {
             ActivityCompat.requestPermissions(getActivity(), NEEDED_PERMISSIONS, ACTION_REQUEST_PERMISSIONS);
         } else {
             initEngine();
             initCamera();
+            initLocalFaceData();
         }
     }
 
@@ -126,10 +135,9 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
     private void initEngine() {
         faceEngine = new FaceEngine();
         afCode = faceEngine.init(getActivity(), FaceEngine.ASF_DETECT_MODE_VIDEO, ConfigUtil.getFtOrient(getActivity()),
-                16, 20, FaceEngine.ASF_FACE_DETECT | FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS);
+                16, 20, FaceEngine.ASF_FACE_DETECT | FaceEngine.ASF_FACE_RECOGNITION | FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS);
         VersionInfo versionInfo = new VersionInfo();
         faceEngine.getVersion(versionInfo);
-        Log.i(TAG, "initEngine:  init: " + afCode + "  version:" + versionInfo);
         if (afCode != ErrorInfo.MOK) {
             Toast.makeText(getActivity().getApplicationContext(), getString(R.string.init_failed, afCode), Toast.LENGTH_SHORT).show();
         }
@@ -139,14 +147,39 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
         DisplayMetrics metrics = new DisplayMetrics();
         getActivity().getWindowManager().getDefaultDisplay().getMetrics(metrics);
 
+        final FaceListener faceListener = new FaceListener() {
+            @Override
+            public void onFail(Exception e) {
+                Log.e(TAG, "onFail: " + e.getMessage());
+            }
+
+            //请求FR的回调
+            @Override
+            public void onFaceFeatureInfoGet(@Nullable final FaceFeature faceFeature, final Integer requestId) {
+                //FR成功
+                if (faceFeature != null) {
+                    //不做活体检测的情况，直接搜索
+                    searchFace(faceFeature, requestId);
+                }
+            }
+
+        };
+
         CameraListener cameraListener = new CameraListener() {
             @Override
             public void onCameraOpened(Camera camera, int cameraId, int displayOrientation, boolean isMirror) {
                 Log.i(TAG, "onCameraOpened: " + cameraId + "  " + displayOrientation + " " + isMirror);
                 previewSize = camera.getParameters().getPreviewSize();
-                resetPreviewSize(previewSize);
+                resetPreviewViewSize(previewSize);
                 drawHelper = new DrawHelper(previewSize.width, previewSize.height, previewWidth, previewHeight, displayOrientation
                         , cameraId, isMirror, false, false);
+                faceHelper = new FaceHelper.Builder()
+                        .faceEngine(faceEngine)
+                        .frThreadNum(10)
+                        .previewSize(previewSize)
+                        .faceListener(faceListener)
+                        .currentTrackId(ConfigUtil.getTrackId(getActivity().getApplicationContext()))
+                        .build();
             }
 
             int previewWidth = 0;
@@ -156,7 +189,7 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
              * 重新设置预览 View 大小
              * @param previewSize 相机预览分辨率
              */
-            private void resetPreviewSize(Camera.Size previewSize) {
+            private void resetPreviewViewSize(Camera.Size previewSize) {
                 Log.i(TAG, "onCameraOpened: previewX = " + previewSize.width + "previewY = " + previewSize.height);
                 previewWidth = previewView.getWidth();
                 ViewGroup.LayoutParams layoutParams = previewView.getLayoutParams();
@@ -179,6 +212,7 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
                 List<FaceInfo> faceInfoList = new ArrayList<>();
                 int code = faceEngine.detectFaces(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList);
                 if (code == ErrorInfo.MOK && faceInfoList.size() > 0) {
+                    faceHelper.requestFaceFeature(nv21, faceInfoList.get(0), previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, 0);
                     code = faceEngine.process(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList, processMask);
                     if (code != ErrorInfo.MOK) {
                         return;
@@ -237,6 +271,53 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
                 .build();
         cameraHelper.init();
         cameraHelper.start();
+    }
+
+    private void initLocalFaceData() {
+        FaceServer.getInstance().init(getActivity().getApplicationContext());
+    }
+
+    private void searchFace(final FaceFeature frFace, final Integer requestId) {
+        Observable
+                .create(new ObservableOnSubscribe<CompareResult>() {
+                    @Override
+                    public void subscribe(ObservableEmitter<CompareResult> emitter) {
+                        CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
+                        if (compareResult == null) {
+                            emitter.onError(null);
+                        } else {
+                            emitter.onNext(compareResult);
+                        }
+                    }
+                })
+                .subscribeOn(Schedulers.computation())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new Observer<CompareResult>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(CompareResult compareResult) {
+                        if (compareResult == null || compareResult.getUserName() == null) {
+                            return;
+                        }
+                        if (compareResult.getSimilar() > 0.8f) {
+                            Toast.makeText(getActivity().getApplicationContext(), "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        Toast.makeText(getActivity().getApplicationContext(), "未识别出人脸", Toast.LENGTH_LONG).show();
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        Log.i(TAG, "onComplete: recognize done!");
+                    }
+                });
     }
 
     private void unInitEngine() {

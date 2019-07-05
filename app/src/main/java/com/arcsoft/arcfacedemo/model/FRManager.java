@@ -1,31 +1,17 @@
-package com.arcsoft.arcfacedemo.fragment;
+package com.arcsoft.arcfacedemo.model;
 
-import android.Manifest;
-import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManager;
+import android.content.Context;
 import android.graphics.Point;
 import android.hardware.Camera;
-import android.os.Build;
-import android.os.Bundle;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.ContextCompat;
-import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
-import android.view.WindowManager;
 import android.widget.Toast;
 
 import com.arcsoft.arcfacedemo.R;
 import com.arcsoft.arcfacedemo.faceserver.CompareResult;
 import com.arcsoft.arcfacedemo.faceserver.FaceServer;
-import com.arcsoft.arcfacedemo.model.DrawInfo;
-import com.arcsoft.arcfacedemo.util.ConfigUtil;
 import com.arcsoft.arcfacedemo.util.DrawHelper;
 import com.arcsoft.arcfacedemo.util.camera.CameraHelper;
 import com.arcsoft.arcfacedemo.util.camera.CameraListener;
@@ -53,101 +39,94 @@ import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 
-public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlobalLayoutListener {
+/**
+ * 人脸识别管理类
+ */
+public class FRManager {
 
-    public final String TAG = getClass().getSimpleName();
-    private CameraHelper cameraHelper;
-    private DrawHelper drawHelper;
-    private Camera.Size previewSize;
-    private Integer rgbCameraId = Camera.CameraInfo.CAMERA_FACING_FRONT;
-    private FaceEngine faceEngine;
-    private int afCode = -1;
-    private FaceHelper faceHelper;
-    private int processMask = FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS;
+    public final String TAG = this.getClass().getSimpleName();
+
+    private Context context;//ApplicationContext
+    private int previewWidth, previewHeight;//预览 View 宽高
+    private int rotation;//屏幕方向
     /**
      * 相机预览显示的控件，可为SurfaceView或TextureView
      */
     private View previewView;
-    private FaceRectView faceRectView;
+    private FaceRectView faceRectView;//人脸追踪框
+    private FaceEngine faceEngine;
+    private int afCode = -1;
+    private DrawHelper drawHelper;//人脸追踪框绘制 Helper
+    private FaceHelper faceHelper;//人脸识别
+    private Camera.Size previewSize;//找出的相机预览分辨率
 
-    private static final int ACTION_REQUEST_PERMISSIONS = 0x001;
-    /**
-     * 所需的所有权限信息
-     */
-    private static final String[] NEEDED_PERMISSIONS = new String[]{
-            Manifest.permission.CAMERA,
-            Manifest.permission.READ_PHONE_STATE
-    };
+    //设置引擎支持的类型
+    private int processMask = FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS;
 
-    @Override
-    public void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WindowManager.LayoutParams attributes = getActivity().getWindow().getAttributes();
-            attributes.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
-            getActivity().getWindow().setAttributes(attributes);
-        }
+    private CameraHelper cameraHelper;//相机管理类
+    private CameraListener cameraListener;//相机监听
+    private FaceListener faceListener;//人脸识别监听
 
-        // Activity启动后就锁定为启动时的方向
-        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+    public FRManager(Context context, int rotation, View previewView, FaceRectView faceRectView) {
+        this.context = context;
+        this.previewView = previewView;
+        this.faceRectView = faceRectView;
+        this.previewWidth = previewView.getWidth();
+        this.previewHeight = previewView.getHeight();
+        this.rotation = rotation;
     }
-
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.fragment_preview, container, false);
-
-        previewView = view.findViewById(R.id.texture_preview);
-        faceRectView = view.findViewById(R.id.face_rect_view);
-        //在布局结束后才做初始化操作
-        previewView.getViewTreeObserver().addOnGlobalLayoutListener(this);
-        return view;
-    }
-
 
     /**
-     * 在{@link #previewView}第一次布局完成后，去除该监听，并且进行引擎和相机的初始化
+     * 初始化
      */
-    @Override
-    public void onGlobalLayout() {
-        previewView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-        if (!checkPermissions(NEEDED_PERMISSIONS)) {
-            ActivityCompat.requestPermissions(getActivity(), NEEDED_PERMISSIONS, ACTION_REQUEST_PERMISSIONS);
-        } else {
-            initEngine();
-            initCamera();
-            initLocalFaceData();
-        }
+    public void initialize() {
+        initEngine();
+        initCamera();
+        initLocalFaceData();
     }
 
-    private boolean checkPermissions(String[] neededPermissions) {
-        if (neededPermissions == null || neededPermissions.length == 0) {
-            return true;
-        }
-        boolean allGranted = true;
-        for (String neededPermission : neededPermissions) {
-            allGranted &= ContextCompat.checkSelfPermission(getActivity().getApplicationContext(), neededPermission) == PackageManager.PERMISSION_GRANTED;
-        }
-        return allGranted;
+    /**
+     * 初始化本地人脸数据
+     */
+    private void initLocalFaceData() {
+        FaceServer.getInstance().init(context.getApplicationContext());
     }
 
+    /**
+     * 初始化人脸识别引擎
+     */
     private void initEngine() {
         faceEngine = new FaceEngine();
-        afCode = faceEngine.init(getActivity(), FaceEngine.ASF_DETECT_MODE_VIDEO, ConfigUtil.getFtOrient(getActivity()),
+        afCode = faceEngine.init(context, FaceEngine.ASF_DETECT_MODE_VIDEO,
+                //ConfigUtil.getFtOrient(context),
+                FaceEngine.ASF_OP_270_ONLY,
                 16, 20, FaceEngine.ASF_FACE_DETECT | FaceEngine.ASF_FACE_RECOGNITION | FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS);
         VersionInfo versionInfo = new VersionInfo();
         faceEngine.getVersion(versionInfo);
         if (afCode != ErrorInfo.MOK) {
-            Toast.makeText(getActivity().getApplicationContext(), getString(R.string.init_failed, afCode), Toast.LENGTH_SHORT).show();
+            Toast.makeText(context, context.getResources().getString(R.string.init_failed, afCode), Toast.LENGTH_SHORT).show();
         }
     }
 
+    /**
+     * 初始化相机
+     */
     private void initCamera() {
-        DisplayMetrics metrics = new DisplayMetrics();
-        getActivity().getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        initListeners();
+        cameraHelper = new CameraHelper.Builder()
+                .previewViewSize(new Point(previewWidth, previewHeight))
+                .rotation(rotation)
+                .specificCameraId(Camera.CameraInfo.CAMERA_FACING_FRONT)
+                .isMirror(false)
+                .previewOn(previewView)
+                .cameraListener(cameraListener)
+                .build();
+        cameraHelper.init();
+        cameraHelper.start();
+    }
 
-        final FaceListener faceListener = new FaceListener() {
+    private void initListeners() {
+        faceListener = new FaceListener() {
             @Override
             public void onFail(Exception e) {
                 Log.e(TAG, "onFail: " + e.getMessage());
@@ -164,38 +143,40 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
             }
 
         };
-
-        CameraListener cameraListener = new CameraListener() {
+        cameraListener = new CameraListener() {
             @Override
             public void onCameraOpened(Camera camera, int cameraId, int displayOrientation, boolean isMirror) {
                 Log.i(TAG, "onCameraOpened: " + cameraId + "  " + displayOrientation + " " + isMirror);
                 previewSize = camera.getParameters().getPreviewSize();
-                resetPreviewViewSize(previewSize);
+                calPreviewViewSize(previewSize);
                 drawHelper = new DrawHelper(previewSize.width, previewSize.height, previewWidth, previewHeight, displayOrientation
                         , cameraId, isMirror, false, false);
                 faceHelper = new FaceHelper.Builder()
                         .faceEngine(faceEngine)
-                        .frThreadNum(10)
+                        .frThreadNum(1)
                         .previewSize(previewSize)
                         .faceListener(faceListener)
-                        .currentTrackId(ConfigUtil.getTrackId(getActivity().getApplicationContext()))
+//                    .currentTrackId(ConfigUtil.getTrackId())
                         .build();
             }
 
-            int previewWidth = 0;
-            int previewHeight = 0;
-
             /**
-             * 重新设置预览 View 大小
+             * 技术算预览 View 大小
              * @param previewSize 相机预览分辨率
              */
-            private void resetPreviewViewSize(Camera.Size previewSize) {
-                Log.i(TAG, "onCameraOpened: previewX = " + previewSize.width + "previewY = " + previewSize.height);
-                previewWidth = previewView.getWidth();
+            private void calPreviewViewSize(Camera.Size previewSize) {
+                previewHeight = (int) ((float) previewWidth / previewSize.height * previewSize.width);
+                Log.i(TAG, "onCameraOpened: resetPreviewViewSize = " + previewWidth + " resetPreviewHeight = " + previewHeight);
+                resetPreviewViewSize();
+            }
+
+            /**
+             * preview 和 faceRectView 必须大小一样，且位置重合
+             * 最直接的就是帧布局放在一起，所以可以用一个 LayoutParam
+             */
+            private void resetPreviewViewSize() {
                 ViewGroup.LayoutParams layoutParams = previewView.getLayoutParams();
-                int height = (int) ((float) previewView.getMeasuredWidth() / previewSize.height * previewSize.width);
-                previewHeight = layoutParams.height = height;
-                Log.i(TAG, "onCameraOpened: height =  " + height);
+                layoutParams.height = previewHeight;
                 previewView.setLayoutParams(layoutParams);
                 faceRectView.setLayoutParams(layoutParams);
                 Log.i(TAG, "onCameraOpened: resetPreviewWidth = " + previewView.getWidth() + " resetPreviewHeight = " + previewView.getHeight());
@@ -203,9 +184,9 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
 
             @Override
             public void onPreview(byte[] nv21, Camera camera) {
-
                 //MainThread
                 Log.i(TAG, "onPreview: " + Thread.currentThread().getName());
+
                 if (faceRectView != null) {
                     faceRectView.clearFaceInfo();
                 }
@@ -261,22 +242,16 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
                 Log.i(TAG, "onCameraConfigurationChanged: " + cameraID + "  " + displayOrientation);
             }
         };
-        cameraHelper = new CameraHelper.Builder()
-                .previewViewSize(new Point(previewView.getMeasuredWidth(), previewView.getMeasuredHeight()))
-                .rotation(getActivity().getWindowManager().getDefaultDisplay().getRotation())
-                .specificCameraId(rgbCameraId != null ? rgbCameraId : Camera.CameraInfo.CAMERA_FACING_FRONT)
-                .isMirror(false)
-                .previewOn(previewView)
-                .cameraListener(cameraListener)
-                .build();
-        cameraHelper.init();
-        cameraHelper.start();
+
     }
 
-    private void initLocalFaceData() {
-        FaceServer.getInstance().init(getActivity().getApplicationContext());
-    }
 
+    /**
+     * 人脸比对
+     *
+     * @param frFace    人脸特征
+     * @param requestId id
+     */
     private void searchFace(final FaceFeature frFace, final Integer requestId) {
         Observable
                 .create(new ObservableOnSubscribe<CompareResult>() {
@@ -304,13 +279,13 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
                             return;
                         }
                         if (compareResult.getSimilar() > 0.8f) {
-                            Toast.makeText(getActivity().getApplicationContext(), "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
+                            Toast.makeText(context.getApplicationContext(), "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
                         }
                     }
 
                     @Override
                     public void onError(Throwable e) {
-                        Toast.makeText(getActivity().getApplicationContext(), "未识别出人脸", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context.getApplicationContext(), "未识别出人脸", Toast.LENGTH_LONG).show();
                     }
 
                     @Override
@@ -320,6 +295,9 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
                 });
     }
 
+    /**
+     * 销毁引擎
+     */
     private void unInitEngine() {
         if (afCode == 0) {
             afCode = faceEngine.unInit();
@@ -327,21 +305,28 @@ public class PreviewFragement extends Fragment implements ViewTreeObserver.OnGlo
         }
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-        if (null != cameraHelper && cameraHelper.isCameraInitialized())
+    /**
+     * 开始人脸检测
+     */
+    public void start() {
+        if (null != cameraHelper)
             cameraHelper.start();
     }
 
-    @Override
-    public void onDestroy() {
+    /**
+     * 销毁
+     */
+    public void destroy() {
+        previewView = null;
+        faceRectView = null;
         if (cameraHelper != null) {
             cameraHelper.release();
             cameraHelper = null;
         }
         unInitEngine();
-        super.onDestroy();
     }
 
+    public boolean isCameraInitialized() {
+        return null != cameraHelper && cameraHelper.isCameraInitialized();
+    }
 }

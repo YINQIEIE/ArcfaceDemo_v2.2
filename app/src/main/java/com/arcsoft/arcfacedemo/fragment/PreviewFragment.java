@@ -64,6 +64,7 @@ public class PreviewFragment extends Fragment implements ViewTreeObserver.OnGlob
 
         previewView = view.findViewById(R.id.texture_preview);
         faceRectView = view.findViewById(R.id.face_rect_view);
+//        view.findViewById(R.id.flPreview).setOnClickListener(v -> frManager.detectLiveness(true).detectGender(true));
         //在布局结束后才做初始化操作
         previewView.getViewTreeObserver().addOnGlobalLayoutListener(this);
         return view;
@@ -84,6 +85,10 @@ public class PreviewFragment extends Fragment implements ViewTreeObserver.OnGlob
                     getActivity().getWindowManager().getDefaultDisplay().getRotation(),
                     previewView,
                     faceRectView);
+            frManager.detectAge(false)
+                    .detectFaceAngle(false)
+                    .detectGender(false)
+                    .detectLiveness(false);
             frManager.initialize();
         }
     }

@@ -13,6 +13,7 @@ import com.arcsoft.arcfacedemo.R;
 import com.arcsoft.arcfacedemo.faceserver.CompareResult;
 import com.arcsoft.arcfacedemo.faceserver.FaceServer;
 import com.arcsoft.arcfacedemo.util.DrawHelper;
+import com.arcsoft.arcfacedemo.util.TrackUtil;
 import com.arcsoft.arcfacedemo.util.camera.CameraHelper;
 import com.arcsoft.arcfacedemo.util.camera.CameraListener;
 import com.arcsoft.arcfacedemo.util.face.FaceHelper;
@@ -32,7 +33,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
@@ -61,11 +61,67 @@ public class FRManager {
     private Camera.Size previewSize;//找出的相机预览分辨率
 
     //设置引擎支持的类型
-    private int processMask = FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS;
+//    private int processMask = FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS;
+    private int processMask = FaceEngine.ASF_NONE;
 
     private CameraHelper cameraHelper;//相机管理类
     private CameraListener cameraListener;//相机监听
     private FaceListener faceListener;//人脸识别监听
+
+    //默认不支持
+    private boolean detectAge = false;
+    private boolean detectFaceAngle = false;
+    private boolean detectGender = false;
+    private boolean detectLiveness = false;
+    private boolean supportMultiFace = true;
+
+    // 若 A or B = C，则
+    // C or B = C
+    // C & B = B
+    // C xor B = A
+    public FRManager detectAge(boolean support) {
+        this.detectAge = support;
+        if (support)
+            processMask |= FaceEngine.ASF_AGE;
+        else {
+            if ((processMask | FaceEngine.ASF_AGE) == FaceEngine.ASF_AGE)
+                processMask ^= FaceEngine.ASF_AGE;
+        }
+        return this;
+    }
+
+    public FRManager detectFaceAngle(boolean support) {
+        this.detectFaceAngle = support;
+        if (support)
+            processMask |= FaceEngine.ASF_FACE3DANGLE;
+        else {
+            if ((processMask | FaceEngine.ASF_FACE3DANGLE) == FaceEngine.ASF_FACE3DANGLE)
+                processMask ^= FaceEngine.ASF_FACE3DANGLE;
+        }
+        return this;
+    }
+
+    public FRManager detectGender(boolean support) {
+        this.detectGender = support;
+        if (support)
+            processMask |= FaceEngine.ASF_GENDER;
+        else {
+            if ((processMask | FaceEngine.ASF_GENDER) == FaceEngine.ASF_GENDER)
+                processMask ^= FaceEngine.ASF_GENDER;
+        }
+        return this;
+    }
+
+    public FRManager detectLiveness(boolean support) {
+        this.detectLiveness = support;
+        if (support)
+            processMask |= FaceEngine.ASF_LIVENESS;
+        else {
+            if ((processMask | FaceEngine.ASF_LIVENESS) == FaceEngine.ASF_LIVENESS)
+                processMask ^= FaceEngine.ASF_LIVENESS;
+        }
+        return this;
+    }
 
     public FRManager(Context context, int rotation, View previewView, FaceRectView faceRectView) {
         this.context = context;
@@ -125,10 +181,18 @@ public class FRManager {
         cameraHelper.start();
     }
 
+    private void printStackTrace(Throwable ex) {
+        StackTraceElement[] stackTraceElements = ex.getStackTrace();
+        for (int i = 0; i < stackTraceElements.length; i++) {
+            System.out.println(TAG + stackTraceElements[i].getMethodName() + ">>>" + stackTraceElements[i].getLineNumber());
+        }
+    }
+
     private void initListeners() {
         faceListener = new FaceListener() {
             @Override
             public void onFail(Exception e) {
+                printStackTrace(e);
                 Log.e(TAG, "onFail: " + e.getMessage());
             }
 
@@ -180,20 +244,19 @@ public class FRManager {
                 previewView.setLayoutParams(layoutParams);
                 faceRectView.setLayoutParams(layoutParams);
                 Log.i(TAG, "onCameraOpened: resetPreviewWidth = " + previewView.getWidth() + " resetPreviewHeight = " + previewView.getHeight());
+//                new Handler().postDelayed(() -> Log.i(TAG, "resetPreviewViewSize: resetPreviewWidth = " + previewView.getWidth() + " resetPreviewHeight = " + previewView.getHeight()), 500);
             }
 
             @Override
             public void onPreview(byte[] nv21, Camera camera) {
                 //MainThread
-                Log.i(TAG, "onPreview: " + Thread.currentThread().getName());
-
+//                Log.i(TAG, "onPreview: " + Thread.currentThread().getName());
                 if (faceRectView != null) {
                     faceRectView.clearFaceInfo();
                 }
                 List<FaceInfo> faceInfoList = new ArrayList<>();
                 int code = faceEngine.detectFaces(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList);
                 if (code == ErrorInfo.MOK && faceInfoList.size() > 0) {
-                    faceHelper.requestFaceFeature(nv21, faceInfoList.get(0), previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, 0);
                     code = faceEngine.process(nv21, previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, faceInfoList, processMask);
                     if (code != ErrorInfo.MOK) {
                         return;
@@ -206,21 +269,56 @@ public class FRManager {
                 List<GenderInfo> genderInfoList = new ArrayList<>();
                 List<Face3DAngle> face3DAngleList = new ArrayList<>();
                 List<LivenessInfo> faceLivenessInfoList = new ArrayList<>();
-                int ageCode = faceEngine.getAge(ageInfoList);
-                int genderCode = faceEngine.getGender(genderInfoList);
-                int face3DAngleCode = faceEngine.getFace3DAngle(face3DAngleList);
-                int livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
 
-                //有其中一个的错误码不为0，return
-                if ((ageCode | genderCode | face3DAngleCode | livenessCode) != ErrorInfo.MOK) {
+                int ageCode = 0;
+                if (detectAge) {
+                    processMask |= FaceEngine.ASF_AGE;
+                    ageCode = faceEngine.getAge(ageInfoList);
+                }
+
+                int genderCode = 0;
+                if (detectGender)
+                    genderCode = faceEngine.getGender(genderInfoList);
+
+                int face3DAngleCode = 0;
+                if (detectFaceAngle)
+                    face3DAngleCode = faceEngine.getFace3DAngle(face3DAngleList);
+
+                int livenessCode = 0;
+                if (detectLiveness) {
+                    TrackUtil.keepMaxFace(faceInfoList);
+//                    livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
+                }
+                livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
+                //有其中一个的错误码不为0 或者最大人脸未通过活体检测 return
+                if ((detectAge && ageCode != ErrorInfo.MOK) ||
+                        (detectGender && genderCode != ErrorInfo.MOK) ||
+                        (detectFaceAngle && face3DAngleCode != ErrorInfo.MOK) ||
+                        (detectLiveness && livenessCode != ErrorInfo.MOK) ||
+                        (detectLiveness && faceLivenessInfoList.size() != faceInfoList.size())) {
                     return;
                 }
                 if (faceRectView != null && drawHelper != null) {
                     List<DrawInfo> drawInfoList = new ArrayList<>();
                     for (int i = 0; i < faceInfoList.size(); i++) {
-                        drawInfoList.add(new DrawInfo(drawHelper.adjustRect(faceInfoList.get(i).getRect()), genderInfoList.get(i).getGender(), ageInfoList.get(i).getAge(), faceLivenessInfoList.get(i).getLiveness(), null));
+                        drawInfoList.add(new DrawInfo(drawHelper.adjustRect(faceInfoList.get(i).getRect()),
+                                detectGender ? genderInfoList.get(i).getGender() : GenderInfo.UNKNOWN,
+                                detectAge ? ageInfoList.get(i).getAge() : AgeInfo.UNKNOWN_AGE,
+                                detectLiveness ? faceLivenessInfoList.get(i).getLiveness() : LivenessInfo.UNKNOWN
+                                , null));
                     }
                     drawHelper.draw(faceRectView, drawInfoList);
+                }
+                if (!supportMultiFace) {
+                    //如果不支持活体检测，此时人脸信息集合可能不止一个，执行保留最大人脸操作
+                    //如果支持活体检测，则已经执行过保留最大人脸操作，无需再次执行
+                    if (!detectLiveness)
+                        TrackUtil.keepMaxFace(faceInfoList);
+                    faceHelper.requestFaceFeature(nv21, faceInfoList.get(0), previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, 0);
+                } else {
+                    for (int i = 0; i < faceInfoList.size(); i++) {
+                        faceHelper.requestFaceFeature(nv21, faceInfoList.get(i), previewSize.width, previewSize.height, FaceEngine.CP_PAF_NV21, 0);
+                    }
                 }
             }
 
@@ -254,15 +352,12 @@ public class FRManager {
      */
     private void searchFace(final FaceFeature frFace, final Integer requestId) {
         Observable
-                .create(new ObservableOnSubscribe<CompareResult>() {
-                    @Override
-                    public void subscribe(ObservableEmitter<CompareResult> emitter) {
-                        CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
-                        if (compareResult == null) {
-                            emitter.onError(null);
-                        } else {
-                            emitter.onNext(compareResult);
-                        }
+                .create((ObservableOnSubscribe<CompareResult>) emitter -> {
+                    CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
+                    if (compareResult == null) {
+                        emitter.onError(null);
+                    } else {
+                        emitter.onNext(compareResult);
                     }
                 })
                 .subscribeOn(Schedulers.computation())

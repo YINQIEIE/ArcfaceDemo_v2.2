@@ -172,7 +172,7 @@ public class DrawHelper {
     }
 
     /**
-     * 绘制数据信息到view上，若 {@link DrawInfo#name} 不为null则绘制 {@link DrawInfo#name}
+     * 绘制数据信息到view上，若 {@link DrawInfo#getName()} 不为null则绘制 {@link DrawInfo#getName()}
      *
      * @param canvas            需要被绘制的view的canvas
      * @param drawInfo          绘制信息
@@ -186,11 +186,11 @@ public class DrawHelper {
         Paint paint = new Paint();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(faceRectThickness);
-        if (drawInfo.getLiveness() == LivenessInfo.NOT_ALIVE){
+        if (drawInfo.getLiveness() == LivenessInfo.NOT_ALIVE) {
             paint.setColor(Color.RED);
-        }else  if (drawInfo.getLiveness() == LivenessInfo.ALIVE){
+        } else if (drawInfo.getLiveness() == LivenessInfo.ALIVE) {
             paint.setColor(Color.GREEN);
-        }else {
+        } else {
             paint.setColor(color);
         }
         Path mPath = new Path();
@@ -218,11 +218,11 @@ public class DrawHelper {
             paint.setStyle(Paint.Style.FILL_AND_STROKE);
             paint.setTextSize(rect.width() / 8);
 
-            String str = (drawInfo.getSex() == GenderInfo.MALE ? "MALE" : (drawInfo.getSex() == GenderInfo.FEMALE ? "FEMALE" : "UNKNOWN"))
-                    + ","
-                    + (drawInfo.getAge() == AgeInfo.UNKNOWN_AGE ? "UNKNWON" : drawInfo.getAge())
-                    + ","
-                    + (drawInfo.getLiveness() == LivenessInfo.ALIVE ? "ALIVE" : (drawInfo.getLiveness() == LivenessInfo.NOT_ALIVE ? "NOT_ALIVE" : "UNKNOWN"));
+            String str = (drawInfo.getSex() == GenderInfo.MALE ? "MALE" : (drawInfo.getSex() == GenderInfo.FEMALE ? "FEMALE" : ""))
+                    + " "
+                    + (drawInfo.getAge() == AgeInfo.UNKNOWN_AGE ? "" : drawInfo.getAge())
+                    + " "
+                    + (drawInfo.getLiveness() == LivenessInfo.ALIVE ? "ALIVE" : (drawInfo.getLiveness() == LivenessInfo.NOT_ALIVE ? "NOT_ALIVE" : ""));
             canvas.drawText(str, rect.left, rect.top - 10, paint);
         } else {
             paint.setStyle(Paint.Style.FILL_AND_STROKE);

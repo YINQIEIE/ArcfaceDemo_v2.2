@@ -75,53 +75,8 @@ public class FRManager {
     private boolean detectLiveness = false;
     private boolean supportMultiFace = true;
 
-    // 若 A or B = C，则
-    // C or B = C
-    // C & B = B
-    // C xor B = A
-    public FRManager detectAge(boolean support) {
-        this.detectAge = support;
-        if (support)
-            processMask |= FaceEngine.ASF_AGE;
-        else {
-            if ((processMask | FaceEngine.ASF_AGE) == FaceEngine.ASF_AGE)
-                processMask ^= FaceEngine.ASF_AGE;
-        }
-        return this;
-    }
-
-    public FRManager detectFaceAngle(boolean support) {
-        this.detectFaceAngle = support;
-        if (support)
-            processMask |= FaceEngine.ASF_FACE3DANGLE;
-        else {
-            if ((processMask | FaceEngine.ASF_FACE3DANGLE) == FaceEngine.ASF_FACE3DANGLE)
-                processMask ^= FaceEngine.ASF_FACE3DANGLE;
-        }
-        return this;
-    }
-
-    public FRManager detectGender(boolean support) {
-        this.detectGender = support;
-        if (support)
-            processMask |= FaceEngine.ASF_GENDER;
-        else {
-            if ((processMask | FaceEngine.ASF_GENDER) == FaceEngine.ASF_GENDER)
-                processMask ^= FaceEngine.ASF_GENDER;
-        }
-        return this;
-    }
-
-    public FRManager detectLiveness(boolean support) {
-        this.detectLiveness = support;
-        if (support)
-            processMask |= FaceEngine.ASF_LIVENESS;
-        else {
-            if ((processMask | FaceEngine.ASF_LIVENESS) == FaceEngine.ASF_LIVENESS)
-                processMask ^= FaceEngine.ASF_LIVENESS;
-        }
-        return this;
-    }
+    private OnFaceFeatureInfoGetListener onFaceFeatureInfoGetListener;
+    private int TIME_DELAY = 2000;//两次提取人脸之间的时间间隔
 
     public FRManager(Context context, int rotation, View previewView, FaceRectView faceRectView) {
         this.context = context;
@@ -156,7 +111,7 @@ public class FRManager {
         afCode = faceEngine.init(context, FaceEngine.ASF_DETECT_MODE_VIDEO,
                 //ConfigUtil.getFtOrient(context),
                 FaceEngine.ASF_OP_270_ONLY,
-                16, 20, FaceEngine.ASF_FACE_DETECT | FaceEngine.ASF_FACE_RECOGNITION | FaceEngine.ASF_AGE | FaceEngine.ASF_FACE3DANGLE | FaceEngine.ASF_GENDER | FaceEngine.ASF_LIVENESS);
+                16, 20, FaceEngine.ASF_FACE_DETECT | FaceEngine.ASF_FACE_RECOGNITION | processMask);
         VersionInfo versionInfo = new VersionInfo();
         faceEngine.getVersion(versionInfo);
         if (afCode != ErrorInfo.MOK) {
@@ -181,29 +136,24 @@ public class FRManager {
         cameraHelper.start();
     }
 
-    private void printStackTrace(Throwable ex) {
-        StackTraceElement[] stackTraceElements = ex.getStackTrace();
-        for (int i = 0; i < stackTraceElements.length; i++) {
-            System.out.println(TAG + stackTraceElements[i].getMethodName() + ">>>" + stackTraceElements[i].getLineNumber());
-        }
-    }
-
     private void initListeners() {
         faceListener = new FaceListener() {
             @Override
             public void onFail(Exception e) {
-                printStackTrace(e);
                 Log.e(TAG, "onFail: " + e.getMessage());
             }
 
             //请求FR的回调
             @Override
             public void onFaceFeatureInfoGet(@Nullable final FaceFeature faceFeature, final Integer requestId) {
+                Log.i(TAG, "onFaceFeatureInfoGet callback: " + Thread.currentThread().getName());
+                Log.i(TAG, "onFaceFeatureInfoGet callback: " + (faceFeature == null));
+                if (null == faceFeature) return;//未获取到人脸特征
+                if (null != onFaceFeatureInfoGetListener)
+                    onFaceFeatureInfoGetListener.onFaceFeatureInfoGet(faceFeature, requestId);
                 //FR成功
-                if (faceFeature != null) {
-                    //不做活体检测的情况，直接搜索
-                    searchFace(faceFeature, requestId);
-                }
+                //不做活体检测的情况，直接搜索
+//                searchFace(faceFeature, requestId);
             }
 
         };
@@ -221,6 +171,7 @@ public class FRManager {
                         .previewSize(previewSize)
                         .faceListener(faceListener)
 //                    .currentTrackId(ConfigUtil.getTrackId())
+                        .timeDealy(TIME_DELAY)
                         .build();
             }
 
@@ -251,6 +202,7 @@ public class FRManager {
             public void onPreview(byte[] nv21, Camera camera) {
                 //MainThread
 //                Log.i(TAG, "onPreview: " + Thread.currentThread().getName());
+                if (null == faceEngine) return;
                 if (faceRectView != null) {
                     faceRectView.clearFaceInfo();
                 }
@@ -272,7 +224,6 @@ public class FRManager {
 
                 int ageCode = 0;
                 if (detectAge) {
-                    processMask |= FaceEngine.ASF_AGE;
                     ageCode = faceEngine.getAge(ageInfoList);
                 }
 
@@ -287,9 +238,8 @@ public class FRManager {
                 int livenessCode = 0;
                 if (detectLiveness) {
                     TrackUtil.keepMaxFace(faceInfoList);
-//                    livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
+                    livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
                 }
-                livenessCode = faceEngine.getLiveness(faceLivenessInfoList);
                 //有其中一个的错误码不为0 或者最大人脸未通过活体检测 return
                 if ((detectAge && ageCode != ErrorInfo.MOK) ||
                         (detectGender && genderCode != ErrorInfo.MOK) ||
@@ -350,7 +300,7 @@ public class FRManager {
      * @param frFace    人脸特征
      * @param requestId id
      */
-    private void searchFace(final FaceFeature frFace, final Integer requestId) {
+    public void searchFace(final FaceFeature frFace, final Integer requestId) {
         Observable
                 .create((ObservableOnSubscribe<CompareResult>) emitter -> {
                     CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
@@ -374,6 +324,7 @@ public class FRManager {
                             return;
                         }
                         if (compareResult.getSimilar() > 0.8f) {
+                            Log.i(TAG, "onNext: done");
                             Toast.makeText(context.getApplicationContext(), "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
                         }
                     }
@@ -423,5 +374,125 @@ public class FRManager {
 
     public boolean isCameraInitialized() {
         return null != cameraHelper && cameraHelper.isCameraInitialized();
+    }
+
+
+    // 若 A or B = C，则
+    // C or B = C
+    // C & B = B
+    // C xor B = A
+
+    /**
+     * 设置是否支持年龄检测
+     * 在{@link #initialize()}之前调用
+     * 如果在调用了{@link #initialize()}之后再次调用，需要调用{@link #resetFaceEngine()}使设置生效
+     *
+     * @param support true:支持 false:不支持
+     * @return 当前对象
+     */
+    public FRManager detectAge(boolean support) {
+        this.detectAge = support;
+        if (support)
+            processMask |= FaceEngine.ASF_AGE;
+        else {
+            if ((processMask | FaceEngine.ASF_AGE) == FaceEngine.ASF_AGE)
+                processMask ^= FaceEngine.ASF_AGE;
+        }
+        return this;
+    }
+
+    /**
+     * 设置是否支持性角度检测
+     * 在{@link #initialize()}之前调用
+     * 如果在调用了{@link #initialize()}之后再次调用，需要调用{@link #resetFaceEngine()}使设置生效
+     *
+     * @param support true:支持 false:不支持
+     * @return 当前对象
+     */
+    public FRManager detectFaceAngle(boolean support) {
+        this.detectFaceAngle = support;
+        if (support)
+            processMask |= FaceEngine.ASF_FACE3DANGLE;
+        else {
+            if ((processMask | FaceEngine.ASF_FACE3DANGLE) == FaceEngine.ASF_FACE3DANGLE)
+                processMask ^= FaceEngine.ASF_FACE3DANGLE;
+        }
+        return this;
+    }
+
+    /**
+     * 设置是否支持性别检测
+     * 在{@link #initialize()}之前调用
+     * 如果在调用了{@link #initialize()}之后再次调用，需要调用{@link #resetFaceEngine()}使设置生效
+     *
+     * @param support true:支持 false:不支持
+     * @return 当前对象
+     */
+    public FRManager detectGender(boolean support) {
+        this.detectGender = support;
+        if (support)
+            processMask |= FaceEngine.ASF_GENDER;
+        else {
+            if ((processMask | FaceEngine.ASF_GENDER) == FaceEngine.ASF_GENDER)
+                processMask ^= FaceEngine.ASF_GENDER;
+        }
+        return this;
+    }
+
+    /**
+     * 设置是否支持活体检测
+     * 在{@link #initialize()}之前调用
+     * 如果在调用了{@link #initialize()}之后再次调用，需要调用{@link #resetFaceEngine()}使设置生效
+     *
+     * @param support true:支持 false:不支持
+     * @return 当前对象
+     */
+    public FRManager detectLiveness(boolean support) {
+        this.detectLiveness = support;
+        if (support)
+            processMask |= FaceEngine.ASF_LIVENESS;
+        else {
+            if ((processMask | FaceEngine.ASF_LIVENESS) == FaceEngine.ASF_LIVENESS)
+                processMask ^= FaceEngine.ASF_LIVENESS;
+        }
+        return this;
+    }
+
+    /**
+     * 设置两次人脸提取特征之间的时间间隔，默认 2S
+     * 在{@link #initialize()}之前调用
+     * 如果在调用了{@link #initialize()}之后再次调用，需要调用{@link #resetFaceEngine()}使设置生效
+     *
+     * @param millionSeconds 毫秒数
+     * @return FRManager 对象
+     */
+    public FRManager setTimeDelay(int millionSeconds) {
+        this.TIME_DELAY = millionSeconds;
+        return this;
+    }
+
+    /**
+     * 重新设置人脸识别引擎参数
+     */
+    public void resetFaceEngine() {
+        unInitEngine();
+        initEngine();
+        faceHelper = new FaceHelper.Builder()
+                .faceEngine(faceEngine)
+                .frThreadNum(1)
+                .previewSize(previewSize)
+                .faceListener(faceListener)
+//                    .currentTrackId(ConfigUtil.getTrackId())
+                .timeDealy(TIME_DELAY)
+                .build();
+    }
+
+    public void setOnFaceFeatureInfoGetListener(OnFaceFeatureInfoGetListener onFaceFeatureInfoGetListener) {
+        this.onFaceFeatureInfoGetListener = onFaceFeatureInfoGetListener;
+    }
+
+
+    public interface OnFaceFeatureInfoGetListener {
+        void onFaceFeatureInfoGet(FaceFeature faceFeature, int requestId);
     }
 }

@@ -1,6 +1,7 @@
 package com.arcsoft.arcfacedemo.util.face;
 
 import android.hardware.Camera;
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.arcsoft.arcfacedemo.model.FacePreviewInfo;
@@ -44,6 +45,8 @@ public class FaceHelper {
     private List<FacePreviewInfo> facePreviewInfoList = new ArrayList<>();
     private ConcurrentHashMap<Integer, String> nameMap = new ConcurrentHashMap<>();
 
+    private int EXTRACT_FACE_FEATURE_DELAY = 0;//两次提取人脸之间的时间间隔
+
     private FaceHelper(Builder builder) {
         faceEngine = builder.faceEngine;
         faceListener = builder.faceListener;
@@ -58,6 +61,7 @@ public class FaceHelper {
         if (previewSize == null) {
             throw new RuntimeException("previewSize must be specified!");
         }
+        this.EXTRACT_FACE_FEATURE_DELAY = builder.timeDelay;
     }
 
     /**
@@ -220,6 +224,7 @@ public class FaceHelper {
                     executor.execute(faceRecognizeRunnables.poll());
                 }
             }
+            SystemClock.sleep(EXTRACT_FACE_FEATURE_DELAY);
             nv21Data = null;
             frThreadRunning = false;
         }
@@ -318,6 +323,7 @@ public class FaceHelper {
         private FaceListener faceListener;
         private int frThreadNum;
         private int currentTrackId;
+        private int timeDelay;
 
         public Builder() {
         }
@@ -347,6 +353,11 @@ public class FaceHelper {
 
         public Builder currentTrackId(int val) {
             currentTrackId = val;
+            return this;
+        }
+
+        public Builder timeDealy(int delay) {
+            timeDelay = delay;
             return this;
         }
 

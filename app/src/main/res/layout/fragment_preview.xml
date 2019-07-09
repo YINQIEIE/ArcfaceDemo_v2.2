@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/flPreview"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <TextureView
         android:id="@+id/texture_preview"
@@ -13,4 +13,12 @@
         android:id="@+id/face_rect_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:text="Facial Technology by ArcSoft®"
+        android:textColor="@android:color/white"
+        android:textSize="14sp" />
 </FrameLayout>

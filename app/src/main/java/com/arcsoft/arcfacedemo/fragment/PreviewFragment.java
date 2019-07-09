@@ -1,6 +1,7 @@
 package com.arcsoft.arcfacedemo.fragment;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.hardware.Camera;
@@ -42,6 +43,14 @@ public class PreviewFragment extends Fragment implements ViewTreeObserver.OnGlob
             Manifest.permission.READ_PHONE_STATE
     };
     private FRManager frManager;
+    private FRManager.OnFaceFeatureInfoGetListener onFaceFeatureInfoGetListener;
+
+    @Override
+    public void onAttach(Context context) {
+        super.onAttach(context);
+        if (context instanceof FRManager.OnFaceFeatureInfoGetListener)
+            this.onFaceFeatureInfoGetListener = (FRManager.OnFaceFeatureInfoGetListener) context;
+    }
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -97,13 +106,15 @@ public class PreviewFragment extends Fragment implements ViewTreeObserver.OnGlob
                 getActivity().getWindowManager().getDefaultDisplay().getRotation(),
                 previewView,
                 faceRectView);
-        frManager.detectAge(false)
-                .detectFaceAngle(false)
-                .detectGender(false)
-                .detectLiveness(false);
+//        frManager.detectAge(false)
+//                .detectFaceAngle(false)
+//                .detectGender(false)
+//                .detectLiveness(false);
         frManager.setOnFaceFeatureInfoGetListener((faceFeature, requestId) -> {
             //子线程
-            frManager.searchFace(faceFeature, requestId);
+            if (null != onFaceFeatureInfoGetListener)
+                onFaceFeatureInfoGetListener.onFaceFeatureInfoGet(faceFeature, requestId);
+//            frManager.searchFace(faceFeature, requestId);
         });
         frManager.initialize();
     }

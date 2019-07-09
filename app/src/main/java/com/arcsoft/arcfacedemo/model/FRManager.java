@@ -100,7 +100,7 @@ public class FRManager {
      * 初始化本地人脸数据
      */
     private void initLocalFaceData() {
-        FaceServer.getInstance().init(context.getApplicationContext());
+        FaceServer.getInstance().init(context);
     }
 
     /**
@@ -300,7 +300,8 @@ public class FRManager {
      * @param frFace    人脸特征
      * @param requestId id
      */
-    public void searchFace(final FaceFeature frFace, final Integer requestId) {
+    public static void searchFace(Context mContext, final FaceFeature frFace, final Integer requestId) {
+        String TAG = "FRManager#searchFace()";
         Observable
                 .create((ObservableOnSubscribe<CompareResult>) emitter -> {
                     CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
@@ -324,14 +325,13 @@ public class FRManager {
                             return;
                         }
                         if (compareResult.getSimilar() > 0.8f) {
-                            Log.i(TAG, "onNext: done");
-                            Toast.makeText(context.getApplicationContext(), "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
+                            Toast.makeText(mContext, "欢迎" + compareResult.getUserName(), Toast.LENGTH_LONG).show();
                         }
                     }
 
                     @Override
                     public void onError(Throwable e) {
-                        Toast.makeText(context.getApplicationContext(), "未识别出人脸", Toast.LENGTH_LONG).show();
+                        Toast.makeText(mContext, "未识别出人脸", Toast.LENGTH_LONG).show();
                     }
 
                     @Override

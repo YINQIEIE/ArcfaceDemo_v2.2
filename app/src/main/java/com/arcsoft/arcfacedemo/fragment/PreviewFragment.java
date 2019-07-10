@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import com.arcsoft.arcfacedemo.R;
 import com.arcsoft.arcfacedemo.model.FRManager;
@@ -114,9 +115,22 @@ public class PreviewFragment extends Fragment implements ViewTreeObserver.OnGlob
             //子线程
             if (null != onFaceFeatureInfoGetListener)
                 onFaceFeatureInfoGetListener.onFaceFeatureInfoGet(faceFeature, requestId);
-//            frManager.searchFace(faceFeature, requestId);
+//            FRManager.searchFace(getActivity().getApplicationContext(), faceFeature, requestId);
         });
-        frManager.initialize();
+        if (!frManager.isEngineActived())
+            frManager.activeEngine(new FRManager.EngineActiveListener() {
+                @Override
+                public void onActiveSuccess() {
+                    frManager.initialize();
+                }
+
+                @Override
+                public void onActiveFailed() {
+                    Toast.makeText(getActivity().getApplicationContext(), "人脸识别初始化失败！", Toast.LENGTH_LONG).show();
+                }
+            });
+        else
+            frManager.initialize();
     }
 
     private boolean checkPermissions(String[] neededPermissions) {

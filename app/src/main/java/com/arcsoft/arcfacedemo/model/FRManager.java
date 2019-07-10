@@ -1,6 +1,7 @@
 package com.arcsoft.arcfacedemo.model;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Point;
 import android.hardware.Camera;
 import android.support.annotation.Nullable;
@@ -10,6 +11,7 @@ import android.view.ViewGroup;
 import android.widget.Toast;
 
 import com.arcsoft.arcfacedemo.R;
+import com.arcsoft.arcfacedemo.common.Constants;
 import com.arcsoft.arcfacedemo.faceserver.CompareResult;
 import com.arcsoft.arcfacedemo.faceserver.FaceServer;
 import com.arcsoft.arcfacedemo.util.DrawHelper;
@@ -302,15 +304,14 @@ public class FRManager {
      */
     public static void searchFace(Context mContext, final FaceFeature frFace, final Integer requestId) {
         String TAG = "FRManager#searchFace()";
-        Observable
-                .create((ObservableOnSubscribe<CompareResult>) emitter -> {
-                    CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
-                    if (compareResult == null) {
-                        emitter.onError(null);
-                    } else {
-                        emitter.onNext(compareResult);
-                    }
-                })
+        Observable.create((ObservableOnSubscribe<CompareResult>) emitter -> {
+            CompareResult compareResult = FaceServer.getInstance().getTopOfFaceLib(frFace);
+            if (compareResult == null) {
+                emitter.onError(null);
+            } else {
+                emitter.onNext(compareResult);
+            }
+        })
                 .subscribeOn(Schedulers.computation())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(new Observer<CompareResult>() {
@@ -494,5 +495,50 @@ public class FRManager {
 
     public interface OnFaceFeatureInfoGetListener {
         void onFaceFeatureInfoGet(FaceFeature faceFeature, int requestId);
+    }
+
+    public void activeEngine(EngineActiveListener listener) {
+        if (null == listener) return;
+        new Thread(() -> activeEngineAction(listener)).start();
+    }
+
+    private void activeEngineAction(EngineActiveListener listener) {
+        FaceEngine faceEngine = new FaceEngine();
+        int activeCode = faceEngine.activeOnline(context, Constants.APP_ID, Constants.SDK_KEY);
+        if (activeCode == ErrorInfo.MOK || activeCode == ErrorInfo.MERR_ASF_ALREADY_ACTIVATED) {
+            saveEngineActiveResult();
+            listener.onActiveSuccess();
+        } else
+            listener.onActiveFailed();
+    }
+
+    /**
+     * 引擎激活
+     */
+    public interface EngineActiveListener {
+
+        void onActiveSuccess();
+
+        void onActiveFailed();
+    }
+
+    /**
+     * 保存人脸识别引擎激活结果
+     */
+    public void saveEngineActiveResult() {
+        SharedPreferences sp = context.getSharedPreferences("engine_active", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putBoolean("isActive", true);
+        editor.commit();
+    }
+
+    /**
+     * 获取人脸识别引擎激活结果
+     *
+     * @return true:已激活
+     */
+    public boolean isEngineActived() {
+        SharedPreferences sp = context.getSharedPreferences("engine_active", Context.MODE_PRIVATE);
+        return sp.getBoolean("isActive", false);
     }
 }
